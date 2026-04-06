@@ -4,7 +4,10 @@
 
 @section('content')
 <div class="bg-white rounded-lg shadow p-4 sm:p-6">
-    <h1 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Dashboard - {{ Auth::user()->name }}</h1>
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 sm:mb-6 gap-1">
+        <h1 class="text-xl sm:text-2xl font-bold">Dashboard - {{ Auth::user()->name }}</h1>
+        <p class="text-gray-500 text-sm">{{ \Carbon\Carbon::now('Asia/Jakarta')->translatedFormat('l, d F Y') }}</p>
+    </div>
 
     <!-- Early Checkout Request Notifications -->
     @if($earlyCheckoutRequest)
@@ -81,30 +84,10 @@
 
         <div class="mt-4 sm:mt-6 space-y-3">
             @if(!$todayAttendance || !$todayAttendance->check_in)
-            @php
-                $shiftStartCarbon = \Carbon\Carbon::createFromFormat('H:i:s', $todaySchedule->shift->start_time, 'Asia/Jakarta');
-                $earliestCheckIn = $shiftStartCarbon->copy()->subMinutes(30);
-                $now = \Carbon\Carbon::now('Asia/Jakarta');
-                $canCheckIn = $now->greaterThanOrEqualTo($earliestCheckIn);
-            @endphp
-
-            @if($canCheckIn)
             <button onclick="confirmCheckIn()" 
                 class="w-full bg-green-500 text-white px-6 py-4 rounded-lg hover:bg-green-600 font-semibold text-lg shadow-lg active:scale-95 transition">
                 ✓ Check In Now
             </button>
-            @else
-            <button disabled
-                class="w-full bg-gray-300 text-gray-500 px-6 py-4 rounded-lg font-semibold text-lg shadow cursor-not-allowed">
-                ✓ Check In Now
-            </button>
-            <div class="bg-yellow-50 border border-yellow-300 rounded-lg p-3 text-center">
-                <p class="text-yellow-800 text-sm font-semibold">⏰ Check-in opens at {{ $earliestCheckIn->format('H:i') }}</p>
-                <p class="text-yellow-700 text-xs mt-1">30 minutes before shift start ({{ $shiftStartCarbon->format('H:i') }})</p>
-                <p class="text-yellow-600 text-sm mt-1">Available in: <span id="checkin-countdown" class="font-bold"></span></p>
-            </div>
-            @endif
-
             <div class="text-center text-gray-600">
                 <span id="current-time" class="font-semibold text-lg"></span>
             </div>
@@ -232,8 +215,6 @@
 <script>
 @if($todayAttendance && $todayAttendance->check_in && !$todayAttendance->check_out)
 const checkInTimestamp = {{ \Carbon\Carbon::parse($todayAttendance->date->format('Y-m-d') . ' ' . $todayAttendance->check_in)->timestamp }};
-const shiftEndTimestamp = {{ \Carbon\Carbon::parse($todayAttendance->date->format('Y-m-d') . ' ' . $todayAttendance->schedule->shift->end_time)->timestamp }};
-let autoCheckoutDone = false;
 @endif
 
 function updateTime() {
@@ -245,14 +226,6 @@ function updateTime() {
         const m = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
         const s = String(diffSec % 60).padStart(2, '0');
         durationElement.textContent = `${h}:${m}:${s}`;
-
-        // Auto checkout: 1 menit setelah shift selesai
-        if (!autoCheckoutDone && typeof shiftEndTimestamp !== 'undefined') {
-            if (nowSec >= shiftEndTimestamp + 60) {
-                autoCheckoutDone = true;
-                document.getElementById('checkoutForm').submit();
-            }
-        }
     }
 }
 
@@ -298,29 +271,5 @@ function submitCheckOut() {
 // Update every second
 setInterval(updateTime, 1000);
 updateTime();
-
-@if(!$todayAttendance || !$todayAttendance->check_in)
-@php
-    $earliestTs = isset($earliestCheckIn) ? $earliestCheckIn->timestamp : null;
-@endphp
-@if(isset($earliestCheckIn) && !$canCheckIn)
-const earliestCheckInTs = {{ $earliestCheckIn->timestamp }};
-function updateCountdown() {
-    const countdownEl = document.getElementById('checkin-countdown');
-    if (!countdownEl) return;
-    const nowSec = Math.floor(Date.now() / 1000);
-    const diff = earliestCheckInTs - nowSec;
-    if (diff <= 0) {
-        location.reload();
-        return;
-    }
-    const m = String(Math.floor(diff / 60)).padStart(2, '0');
-    const s = String(diff % 60).padStart(2, '0');
-    countdownEl.textContent = `${m}:${s}`;
-}
-setInterval(updateCountdown, 1000);
-updateCountdown();
-@endif
-@endif
 </script>
 @endsection
