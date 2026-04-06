@@ -60,13 +60,6 @@ class AttendanceController extends Controller
         $shiftStart = Carbon::createFromFormat('H:i:s', $schedule->shift->start_time, 'Asia/Jakarta');
         $shiftStart->setDate($checkInTime->year, $checkInTime->month, $checkInTime->day);
 
-        // Tidak boleh check-in lebih dari 30 menit sebelum jam masuk shift
-        $earliestCheckIn = $shiftStart->copy()->subMinutes(30);
-        if ($checkInTime->lessThan($earliestCheckIn)) {
-            $minutesLeft = (int) $checkInTime->diffInMinutes($earliestCheckIn, false) * -1;
-            return back()->with('error', 'Check-in is only allowed 30 minutes before shift start (' . $shiftStart->format('H:i') . '). Please wait ' . abs($minutesLeft) . ' more minute(s).');
-        }
-
         $tolerance = $schedule->shift->tolerance_minutes;
         
         $status = $checkInTime->greaterThan($shiftStart->copy()->addMinutes($tolerance)) ? 'late' : 'present';
