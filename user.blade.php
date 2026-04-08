@@ -151,6 +151,7 @@
                             <th class="px-3 py-2 text-left">Date</th>
                             <th class="px-3 py-2 text-left">Check In</th>
                             <th class="px-3 py-2 text-left">Check Out</th>
+                            <th class="px-3 py-2 text-left">Durasi</th>
                             <th class="px-3 py-2 text-left">Status</th>
                         </tr>
                     </thead>
@@ -160,6 +161,17 @@
                             <td class="px-3 py-2 whitespace-nowrap">{{ $attendance->date->format('d/m/Y') }}</td>
                             <td class="px-3 py-2">{{ $attendance->check_in ?? '-' }}</td>
                             <td class="px-3 py-2">{{ $attendance->check_out ?? '-' }}</td>
+                            <td class="px-3 py-2">
+                                @if($attendance->check_in && $attendance->check_out)
+                                    @php
+                                        $diff = \Carbon\Carbon::createFromFormat('H:i:s', $attendance->check_in)
+                                            ->diff(\Carbon\Carbon::createFromFormat('H:i:s', $attendance->check_out));
+                                    @endphp
+                                    {{ $diff->h }}j {{ $diff->i }}m
+                                @else
+                                    -
+                                @endif
+                            </td>
                             <td class="px-3 py-2">
                                 <span class="px-2 py-1 rounded text-xs font-semibold
                                     @if($attendance->status == 'present') bg-green-100 text-green-800
@@ -171,7 +183,7 @@
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="4" class="px-3 py-4 text-center text-gray-500">No attendance history yet</td>
+                            <td colspan="5" class="px-3 py-4 text-center text-gray-500">No attendance history yet</td>
                         </tr>
                         @endforelse
                     </tbody>
