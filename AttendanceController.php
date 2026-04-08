@@ -193,13 +193,13 @@ class AttendanceController extends Controller
         $sheet->setTitle('Laporan Absensi');
 
         // Judul
-        $sheet->mergeCells('A1:K1');
+        $sheet->mergeCells('A1:L1');
         $sheet->setCellValue('A1', 'LAPORAN ABSENSI KARYAWAN');
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $sheet->getStyle('A1')->getAlignment()
             ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
-        $sheet->mergeCells('A2:K2');
+        $sheet->mergeCells('A2:L2');
         $label = $startDate === $endDate
             ? \Carbon\Carbon::parse($startDate)->translatedFormat('d F Y')
             : \Carbon\Carbon::parse($startDate)->translatedFormat('d F Y') . ' s/d ' . \Carbon\Carbon::parse($endDate)->translatedFormat('d F Y');
@@ -209,12 +209,12 @@ class AttendanceController extends Controller
             ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
 
         // Header kolom baris 4
-        $headers = ['No','Tanggal','Nama','Departemen','Tipe','Shift','Jam Shift','Check In','Check Out','Status','Keterangan'];
-        $cols    = ['A','B','C','D','E','F','G','H','I','J','K'];
+        $headers = ['No','Tanggal','Nama','Departemen','Tipe','Shift','Jam Shift','Check In','Check Out','Durasi','Status','Keterangan'];
+        $cols    = ['A','B','C','D','E','F','G','H','I','J','K','L'];
         foreach ($headers as $i => $h) {
             $sheet->setCellValue($cols[$i] . '4', $h);
         }
-        $sheet->getStyle('A4:K4')->applyFromArray([
+        $sheet->getStyle('A4:L4')->applyFromArray([
             'font'      => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
             'fill'      => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => '2563EB']],
             'alignment' => [
@@ -249,8 +249,18 @@ class AttendanceController extends Controller
             $sheet->setCellValue('G' . $row, $attendance->schedule->shift->start_time . ' - ' . $attendance->schedule->shift->end_time);
             $sheet->setCellValue('H' . $row, $attendance->check_in ?? '-');
             $sheet->setCellValue('I' . $row, $attendance->check_out ?? '-');
-            $sheet->setCellValue('J' . $row, $status);
-            $sheet->setCellValue('K' . $row, $attendance->notes ?? '-');
+
+            // Hitung durasi check-in
+            $durasi = '-';
+            if ($attendance->check_in && $attendance->check_out) {
+                $in  = \Carbon\Carbon::createFromFormat('H:i:s', $attendance->check_in);
+                $out = \Carbon\Carbon::createFromFormat('H:i:s', $attendance->check_out);
+                $diff = $in->diff($out);
+                $durasi = $diff->h . 'j ' . $diff->i . 'm';
+            }
+            $sheet->setCellValue('J' . $row, $durasi);
+            $sheet->setCellValue('K' . $row, $status);
+            $sheet->setCellValue('L' . $row, $attendance->notes ?? '-');
 
             // Warna baris
             $bgColor = match($attendance->status) {
@@ -258,7 +268,7 @@ class AttendanceController extends Controller
                 'absent' => 'FEE2E2',
                 default  => ($no % 2 === 0) ? 'F8FAFC' : 'FFFFFF',
             };
-            $sheet->getStyle("A{$row}:K{$row}")->getFill()
+            $sheet->getStyle("A{$row}:L{$row}")->getFill()
                 ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
                 ->getStartColor()->setRGB($bgColor);
 
@@ -269,10 +279,10 @@ class AttendanceController extends Controller
                 'absent'  => 'DC2626',
                 default   => '000000',
             };
-            $sheet->getStyle("J{$row}")->getFont()->setBold(true)->getColor()->setRGB($statusColor);
+            $sheet->getStyle("K{$row}")->getFont()->setBold(true)->getColor()->setRGB($statusColor);
 
             // Border
-            $sheet->getStyle("A{$row}:K{$row}")->getBorders()->getAllBorders()
+            $sheet->getStyle("A{$row}:L{$row}")->getBorders()->getAllBorders()
                 ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
                 ->getColor()->setRGB('E2E8F0');
 
