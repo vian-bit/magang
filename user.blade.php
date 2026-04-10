@@ -9,6 +9,32 @@
         <p class="text-gray-500 text-sm">{{ \Carbon\Carbon::now('Asia/Jakarta')->translatedFormat('l, d F Y') }}</p>
     </div>
 
+    <!-- User Info Card -->
+    <div class="flex flex-wrap gap-3 mb-5">
+        <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+            <span class="text-blue-500 text-lg">🏢</span>
+            <div>
+                <p class="text-xs text-gray-500">Department</p>
+                <p class="font-semibold text-blue-800 text-sm">{{ Auth::user()->department->name ?? 'Tidak ada departemen' }}</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-4 py-2">
+            <span class="text-purple-500 text-lg">🪪</span>
+            <div>
+                <p class="text-xs text-gray-500">Role</p>
+                <p class="font-semibold text-purple-800 text-sm">
+                    @if(Auth::user()->user_type === 'trainee')
+                        Trainee
+                    @elseif(Auth::user()->user_type === 'daily_worker')
+                        Daily Worker
+                    @else
+                        {{ ucfirst(Auth::user()->user_type ?? '-') }}
+                    @endif
+                </p>
+            </div>
+        </div>
+    </div>
+
     <!-- Early Checkout Request Notifications -->
     @if($earlyCheckoutRequest)
         @if($earlyCheckoutRequest->status === 'pending')
