@@ -94,15 +94,13 @@ class WhatsAppController extends Controller
             $phone = '0' . substr($phone, 2);
         }
 
-        // --- Cari user ---
+        // --- Cari user (semua role) ---
         $user = User::where('phone', $phone)
-            ->whereIn('role', ['admin', 'superuser'])
             ->where('is_active', true)
             ->first();
 
         if (!$user && $isLid) {
             $user = User::where('wa_lid', $rawId)
-                ->whereIn('role', ['admin', 'superuser'])
                 ->where('is_active', true)
                 ->first();
         }
@@ -116,23 +114,22 @@ class WhatsAppController extends Controller
         if (!$user) {
             \Illuminate\Support\Facades\Log::info("WA webhook: unregistered {$from}, text: {$textL}");
 
-            // Jika pesan adalah "link <email>", coba daftarkan wa_lid
+            // Jika pesan adalah "link <email>", coba daftarkan wa_lid (semua role)
             if (str_starts_with($textL, 'link ')) {
                 $email = trim(substr($textL, 5));
                 $candidate = User::where('email', $email)
-                    ->whereIn('role', ['admin', 'superuser'])
                     ->where('is_active', true)
                     ->first();
 
                 if ($candidate) {
                     $candidate->update(['wa_lid' => $rawId]);
                     return response()->json([
-                        'reply' => "✅ Berhasil!\n\nHalo *{$candidate->name}*, nomor kamu sudah terhubung.\nKetik *help* untuk melihat perintah."
+                        'reply' => "✅ Berhasil!\n\nHalo *{$candidate->name}*, nomor kamu sudah terhubung."
                     ]);
                 }
 
                 return response()->json([
-                    'reply' => "❌ Email tidak ditemukan atau bukan admin."
+                    'reply' => "❌ Email tidak ditemukan."
                 ]);
             }
 
@@ -141,7 +138,12 @@ class WhatsAppController extends Controller
             return response()->json(['reply' => null]);
         }
 
-        // Perintah "link" dari user yang sudah terdaftar — konfirmasi sudah terdaftar
+        // --- User biasa: hanya bisa lihat jadwal shift hari ini ---
+        if ($user->isUser()) {
+            return response()->json(['reply' => $this->buildUserShiftInfo($user)]);
+        }
+
+        // Perintah "link" dari admin/superuser yang sudah terdaftar
         if (str_starts_with($textL, 'link ')) {
             return response()->json([
                 'reply' => "✅ Nomor kamu sudah terdaftar, *{$user->name}*!\nKetik *help* untuk melihat perintah."
@@ -344,5 +346,42 @@ class WhatsAppController extends Controller
                 . "❓ *help* — tampilkan menu ini\n"
                 . "🔗 *link email@kamu.com* — hubungkan nomor WA ke akun\n\n"
                 . "_Hanya admin terdaftar yang dapat menggunakan bot ini._";
+        }
+    protected function buildUserShiftInfo(User $user): string
+        {
+            $schedule = \App\Models\Schedule::with(['shift', 'attendance'])
+                ->where('user_id', $user->id)
+                ->whereDate('date', today())
+                ->first();
+
+            $msg = "🏨 *Grandhika Intern and Daily Worker Attendance*\n";
+            $msg .= "Halo *{$user->name}*!\n\n";
+
+            if (!$schedule) {
+                $msg .= "📅 Kamu tidak memiliki jadwal hari ini.";
+                return $msg;
+            }
+
+            $shift      = $schedule->shift;
+            $attendance = $schedule->attendance;
+            $line       = str_repeat('─', 28);
+
+            $msg .= "📅 *Jadwal Hari Ini*\n{$line}\n";
+            $msg .= "🕐 Shift  : *{$shift->name}*\n";
+            $msg .= "⏰ Jam    : *{$shift->start_time} - {$shift->end_time}*\n";
+            $msg .= "{$line}\n";
+
+            if (!$attendance || !$attendance->check_in) {
+                $msg .= "📌 Status : Belum Check In";
+            } elseif (!$attendance->check_out) {
+                $msg .= "✅ Check In  : {$attendance->check_in}\n";
+                $msg .= "📌 Check Out : Belum";
+            } else {
+                $msg .= "✅ Check In  : {$attendance->check_in}\n";
+                $msg .= "✅ Check Out : {$attendance->check_out}\n";
+                $msg .= "📌 Status    : " . ucfirst($attendance->status);
+            }
+
+            return $msg;
         }
 }
