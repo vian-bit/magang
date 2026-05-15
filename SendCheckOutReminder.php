@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Models\Attendance;
-use App\Models\Schedule;
 use App\Services\WhatsAppService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -12,13 +11,12 @@ use Illuminate\Support\Facades\Cache;
 class SendCheckOutReminder extends Command
 {
     protected $signature   = 'attendance:send-checkout-reminder {--force : Kirim ke semua user yang sudah check-in tapi belum check-out}';
-    protected $description = 'Kirim notifikasi WA ke user 10 menit sebelum shift selesai';
+    protected $description = 'Kirim notifikasi WA ke user 5 menit setelah shift selesai (jika belum check-out)';
 
     public function handle(WhatsAppService $wa): int
     {
-        $now    = Carbon::now('Asia/Jakarta');
-        $target = $now->copy()->addMinutes(10);
-        $force  = $this->option('force');
+        $now   = Carbon::now('Asia/Jakarta');
+        $force = $this->option('force');
 
         $query = Attendance::with(['user', 'schedule.shift'])
             ->whereDate('date', today())
@@ -26,11 +24,12 @@ class SendCheckOutReminder extends Command
             ->whereNull('check_out');
 
         if (!$force) {
-            // Hanya shift yang selesai dalam ~10 menit (toleransi ±1 menit)
-            $query->whereHas('schedule.shift', function ($q) use ($target) {
+            // Kirim ke user yang shift-nya sudah selesai 5 menit lalu (toleransi ±1 menit)
+            // end_time antara (now - 6 menit) sampai (now - 4 menit)
+            $query->whereHas('schedule.shift', function ($q) use ($now) {
                 $q->whereBetween('end_time', [
-                    $target->copy()->subMinute()->format('H:i:s'),
-                    $target->copy()->addMinute()->format('H:i:s'),
+                    $now->copy()->subMinutes(6)->format('H:i:s'),
+                    $now->copy()->subMinutes(4)->format('H:i:s'),
                 ]);
             });
         }
@@ -48,9 +47,10 @@ class SendCheckOutReminder extends Command
             if (empty($user->phone) && empty($user->wa_lid)) continue;
             if (!$user->is_active) continue;
 
-            $key = 'checkout_reminder_' . $user->id . '_' . now('Asia/Jakarta')->format('Y-m-d');
-
-            if (!Cache::add($key, true, now('Asia/Jakarta')->endOfDay())) {
+            // Dedup: hanya kirim sekali per user per hari
+            $key = 'checkout_reminder_' . $user->id . '_' . $now->format('Y-m-d');
+            if (!Cache::add($key, true, $now->copy()->endOfDay())) {
+                $this->line("→ Skip {$user->name} (sudah dikirim hari ini)");
                 continue;
             }
 
@@ -58,18 +58,18 @@ class SendCheckOutReminder extends Command
 
             $msg  = "🏨 *Grandhika Intern and Daily Worker Attendance*\n\n";
             $msg .= "Halo *{$user->name}*,\n\n";
-            $msg .= "⏰ Shift kamu (*{$attendance->schedule->shift->name}*) selesai pukul *{$shiftEnd}* — 10 menit lagi!\n\n";
-            $msg .= "Jangan lupa *Check Out* ya. 😊";
+            $msg .= "⏰ Shift kamu (*{$attendance->schedule->shift->name}*) sudah selesai pukul *{$shiftEnd}*.\n\n";
+            $msg .= "Kamu belum *Check Out*. Jangan lupa ya! 😊";
 
             if (!empty($user->phone)) {
                 $targets[] = ['phone' => $user->phone, 'message' => $msg];
             }
-            $this->line("→ Reminder checkout ke {$user->name} ({$user->phone}) shift ends {$shiftEnd}");
+            $this->line("→ Reminder checkout ke {$user->name} ({$user->phone}) shift ended {$shiftEnd}");
         }
 
         if (!empty($targets)) {
             $wa->sendBulkPublic($targets);
-            $this->info("✓ {$attendances->count()} reminder checkout dikirim.");
+            $this->info("✓ " . count($targets) . " reminder checkout dikirim.");
         }
 
         return self::SUCCESS;
