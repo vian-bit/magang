@@ -7,6 +7,7 @@ use App\Models\Schedule;
 use App\Services\WhatsAppService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 
 class SendCheckOutReminder extends Command
 {
@@ -46,6 +47,12 @@ class SendCheckOutReminder extends Command
             $user = $attendance->user;
             if (empty($user->phone) && empty($user->wa_lid)) continue;
             if (!$user->is_active) continue;
+
+            $key = 'checkout_reminder_' . $user->id . '_' . now('Asia/Jakarta')->format('Y-m-d');
+
+            if (!Cache::add($key, true, now('Asia/Jakarta')->endOfDay())) {
+                continue;
+            }
 
             $shiftEnd = Carbon::createFromFormat('H:i:s', $attendance->schedule->shift->end_time)->format('H:i');
 

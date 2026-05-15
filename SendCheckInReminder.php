@@ -6,6 +6,7 @@ use App\Models\Schedule;
 use App\Services\WhatsAppService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 
 class SendCheckInReminder extends Command
 {
@@ -45,6 +46,12 @@ class SendCheckInReminder extends Command
         foreach ($schedules as $schedule) {
             $user = $schedule->user;
             if (empty($user->phone) || !$user->is_active) continue;
+
+            $key = 'checkin_reminder_' . $user->id . '_' . now('Asia/Jakarta')->format('Y-m-d');
+
+            if (!Cache::add($key, true, now('Asia/Jakarta')->endOfDay())) {
+            continue;
+            }
 
             $shiftStart = Carbon::createFromFormat('H:i:s', $schedule->shift->start_time)->format('H:i');
 
