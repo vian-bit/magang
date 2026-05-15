@@ -19,7 +19,7 @@ class WhatsAppController extends Controller
      */
     public function status()
     {
-        $serverUrl = config('services.whatsapp.server_url', 'http://localhost:3000');
+        $serverUrl = config('services.whatsapp.server_url', 'http://202.155.18.115:3000');
         try {
             $response = Http::timeout(5)->get("{$serverUrl}/status");
             $data = $response->json();
@@ -110,11 +110,23 @@ class WhatsAppController extends Controller
             $user->update(['wa_lid' => $rawId]);
         }
 
+        // Jika user biasa (bukan admin/superuser), hanya proses perintah link
+        // dan balas dengan info — tidak bisa akses perintah admin
+        if ($user && $user->isUser()) {
+            if (str_starts_with($textL, 'link ')) {
+                return response()->json([
+                    'reply' => "✅ Nomor kamu sudah terdaftar, *{$user->name}*!\nKamu akan menerima notifikasi reminder shift otomatis. 😊"
+                ]);
+            }
+            // User biasa tidak dapat akses perintah bot — abaikan
+            return response()->json(['reply' => null]);
+        }
+
         // Nomor tidak terdaftar — coba alur link via perintah "link <email>"
         if (!$user) {
             \Illuminate\Support\Facades\Log::info("WA webhook: unregistered {$from}, text: {$textL}");
 
-            // Jika pesan adalah "link <email>", coba daftarkan wa_lid (semua role)
+            // Jika pesan adalah "link <email>", coba daftarkan wa_lid untuk SEMUA role
             if (str_starts_with($textL, 'link ')) {
                 $email = trim(substr($textL, 5));
                 $candidate = User::where('email', $email)
@@ -123,27 +135,27 @@ class WhatsAppController extends Controller
 
                 if ($candidate) {
                     $candidate->update(['wa_lid' => $rawId]);
+                    // Juga update phone jika belum ada dan bisa di-parse
+                    if (empty($candidate->phone) && !$isLid) {
+                        $candidate->update(['phone' => $phone]);
+                    }
                     return response()->json([
-                        'reply' => "✅ Berhasil!\n\nHalo *{$candidate->name}*, nomor kamu sudah terhubung."
+                        'reply' => "✅ Berhasil!\n\nHalo *{$candidate->name}*, nomor kamu sudah terhubung.\nKamu akan menerima notifikasi reminder shift otomatis. 😊"
                     ]);
                 }
 
                 return response()->json([
-                    'reply' => "❌ Email tidak ditemukan."
+                    'reply' => "❌ Email tidak ditemukan.\n\nPastikan email yang kamu masukkan sudah terdaftar di sistem.\nContoh: *link nama@grandhika.com*"
                 ]);
             }
 
-            // Pesan lain dari nomor tidak terdaftar — abaikan
-            \Illuminate\Support\Facades\Log::info("WA webhook: ignored message from unregistered number {$from}");
-            return response()->json(['reply' => null]);
+            // Pesan lain dari nomor tidak terdaftar — beri petunjuk
+            return response()->json([
+                'reply' => "👋 Halo!\n\nUntuk menghubungkan nomor WA kamu ke sistem absensi, ketik:\n\n*link email@grandhika.com*\n\n_Gunakan email yang terdaftar di sistem._"
+            ]);
         }
 
-        // --- User biasa: hanya bisa lihat jadwal shift hari ini ---
-        if ($user->isUser()) {
-            return response()->json(['reply' => $this->buildUserShiftInfo($user)]);
-        }
-
-        // Perintah "link" dari admin/superuser yang sudah terdaftar
+        // Perintah "link" dari user yang sudah terdaftar — konfirmasi sudah terdaftar
         if (str_starts_with($textL, 'link ')) {
             return response()->json([
                 'reply' => "✅ Nomor kamu sudah terdaftar, *{$user->name}*!\nKetik *help* untuk melihat perintah."
@@ -288,11 +300,8 @@ class WhatsAppController extends Controller
             'department_id' => $deptId,
         ], now()->addMinutes(10));
 
-        // Ambil IP lokal server agar bisa diakses dari device lain (HP, dll)
-        $serverIp = $this->getServerLocalIp();
-        $port     = parse_url(config('app.url'), PHP_URL_PORT) ?? 8000;
-        $appUrl   = "http://{$serverIp}:{$port}";
-        $url      = "{$appUrl}/dl/{$token}";
+        $appUrl = rtrim(config('app.url'), '/');
+        $url    = "{$appUrl}/dl/{$token}";
 
         $label = $startDate === $endDate
             ? Carbon::parse($startDate)->format('d/m/Y')
@@ -302,34 +311,6 @@ class WhatsAppController extends Controller
             "📊 *Export Absensi Excel*\n🏢 {$deptName}\n📅 {$label}\n⏳ _Link berlaku 10 menit_",
             $url,
         ];
-    }
-
-    /**
-     * Ambil IP lokal server (192.168.x.x) agar link bisa diakses dari device lain
-     */
-    protected function getServerLocalIp(): string
-    {
-        // Coba resolve via stream connection (tidak butuh extension sockets)
-        try {
-            $sock = @stream_socket_client('udp://8.8.8.8:80', $errno, $errstr, 1);
-            if ($sock) {
-                $ip = stream_socket_get_name($sock, false);
-                fclose($sock);
-                $ip = explode(':', $ip)[0]; // hapus port
-                if ($ip && $ip !== '0.0.0.0' && $ip !== '127.0.0.1') return $ip;
-            }
-        } catch (\Exception $e) {}
-
-        // Fallback: pakai APP_URL jika sudah diset ke IP lokal
-        $urlHost = parse_url(config('app.url'), PHP_URL_HOST);
-        if ($urlHost && $urlHost !== 'localhost' && $urlHost !== '127.0.0.1') {
-            return $urlHost;
-        }
-
-        // Last resort
-        $hostname = gethostname();
-        $ip = $hostname ? gethostbyname($hostname) : '127.0.0.1';
-        return ($ip && $ip !== $hostname) ? $ip : '127.0.0.1';
     }
 
     protected function buildHelpMessage(): string
@@ -346,42 +327,5 @@ class WhatsAppController extends Controller
                 . "❓ *help* — tampilkan menu ini\n"
                 . "🔗 *link email@kamu.com* — hubungkan nomor WA ke akun\n\n"
                 . "_Hanya admin terdaftar yang dapat menggunakan bot ini._";
-        }
-    protected function buildUserShiftInfo(User $user): string
-        {
-            $schedule = \App\Models\Schedule::with(['shift', 'attendance'])
-                ->where('user_id', $user->id)
-                ->whereDate('date', today())
-                ->first();
-
-            $msg = "🏨 *Grandhika Intern and Daily Worker Attendance*\n";
-            $msg .= "Halo *{$user->name}*!\n\n";
-
-            if (!$schedule) {
-                $msg .= "📅 Kamu tidak memiliki jadwal hari ini.";
-                return $msg;
-            }
-
-            $shift      = $schedule->shift;
-            $attendance = $schedule->attendance;
-            $line       = str_repeat('─', 28);
-
-            $msg .= "📅 *Jadwal Hari Ini*\n{$line}\n";
-            $msg .= "🕐 Shift  : *{$shift->name}*\n";
-            $msg .= "⏰ Jam    : *{$shift->start_time} - {$shift->end_time}*\n";
-            $msg .= "{$line}\n";
-
-            if (!$attendance || !$attendance->check_in) {
-                $msg .= "📌 Status : Belum Check In";
-            } elseif (!$attendance->check_out) {
-                $msg .= "✅ Check In  : {$attendance->check_in}\n";
-                $msg .= "📌 Check Out : Belum";
-            } else {
-                $msg .= "✅ Check In  : {$attendance->check_in}\n";
-                $msg .= "✅ Check Out : {$attendance->check_out}\n";
-                $msg .= "📌 Status    : " . ucfirst($attendance->status);
-            }
-
-            return $msg;
         }
 }
